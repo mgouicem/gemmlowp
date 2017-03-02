@@ -35,10 +35,11 @@ namespace gemmlowp {
 
 void ReferenceEightBitIntGemm(bool transpose_a, bool transpose_b,
                               bool transpose_c, int m, int n, int k,
-                              const uint8_t* a, int32_t a_offset, int lda,
-                              const uint8_t* b, int32_t b_offset, int ldb,
-                              uint8_t* c, int32_t c_offset, int32_t c_mult_int,
-                              int32_t c_shift, int ldc) {
+                              const std::uint8_t* a, std::int32_t a_offset,
+                              int lda, const std::uint8_t* b,
+                              std::int32_t b_offset, int ldb, std::uint8_t* c,
+                              std::int32_t c_offset, std::int32_t c_mult_int,
+                              std::int32_t c_shift, int ldc) {
   assert((c_shift >= 0) && (c_shift <= 32));
 
   assert(a != nullptr);
@@ -78,18 +79,20 @@ void ReferenceEightBitIntGemm(bool transpose_a, bool transpose_b,
 
   for (j = 0; j < n; j++) {
     for (i = 0; i < m; i++) {
-      int32_t total = 0;
+      std::int32_t total = 0;
       for (l = 0; l < k; l++) {
         const int a_index = i * a_i_stride + l * a_l_stride;
-        const uint8_t a_as_byte = a[a_index];
-        const int32_t a_as_int = static_cast<int32_t>(a_as_byte) + a_offset;
+        const std::uint8_t a_as_byte = a[a_index];
+        const std::int32_t a_as_int =
+            static_cast<std::int32_t>(a_as_byte) + a_offset;
         const int b_index = j * b_j_stride + l * b_l_stride;
-        const uint8_t b_as_byte = b[b_index];
-        const int32_t b_as_int = static_cast<int32_t>(b_as_byte) + b_offset;
-        const int32_t mult_as_int = a_as_int * b_as_int;
+        const std::uint8_t b_as_byte = b[b_index];
+        const std::int32_t b_as_int =
+            static_cast<std::int32_t>(b_as_byte) + b_offset;
+        const std::int32_t mult_as_int = a_as_int * b_as_int;
         total += mult_as_int;
       }
-      int32_t output =
+      std::int32_t output =
           (((total + c_offset) * c_mult_int) + kRoundingTerm) >> c_shift;
       if (output > 255) {
         output = 255;
@@ -98,7 +101,7 @@ void ReferenceEightBitIntGemm(bool transpose_a, bool transpose_b,
         output = 0;
       }
       const int c_index = i * c_i_stride + j * c_j_stride;
-      c[c_index] = static_cast<uint8_t>(output);
+      c[c_index] = static_cast<std::uint8_t>(output);
     }
   }
 }
@@ -131,8 +134,9 @@ struct SingleThreadGemmWrapper {
                      LhsOrder, RhsOrder, ResultOrder, OffsetColDup,
                      OffsetRowDup>(
         context, Kernel(), lhs, rhs, result, lhs_offset_vector,
-        rhs_offset_vector, MakeStandardOutputPipeline(
-                               result_offset, result_mult_int, result_shift));
+        rhs_offset_vector,
+        MakeStandardOutputPipeline(result_offset, result_mult_int,
+                                   result_shift));
   }
 };
 
@@ -161,8 +165,9 @@ struct MultiThreadGemmWrapper {
                     LhsOrder, RhsOrder, ResultOrder, OffsetColDup,
                     OffsetRowDup>(
         context, Kernel(), lhs, rhs, result, lhs_offset_vector,
-        rhs_offset_vector, MakeStandardOutputPipeline(
-                               result_offset, result_mult_int, result_shift));
+        rhs_offset_vector,
+        MakeStandardOutputPipeline(result_offset, result_mult_int,
+                                   result_shift));
   }
 };
 
@@ -181,9 +186,10 @@ struct PublicGemmWrapper {
                    MatrixMap<Scalar, ResultOrder>* result, int lhs_offset,
                    int rhs_offset, int result_offset, int result_mult_int,
                    int result_shift) {
-    gemmlowp::Gemm<uint8_t, BitDepthParams, LhsOrder, RhsOrder, ResultOrder>(
-        context, lhs, rhs, result, lhs_offset, rhs_offset, result_offset,
-        result_mult_int, result_shift);
+    gemmlowp::Gemm<std::uint8_t, BitDepthParams, LhsOrder, RhsOrder,
+                   ResultOrder>(context, lhs, rhs, result, lhs_offset,
+                                rhs_offset, result_offset, result_mult_int,
+                                result_shift);
   }
 };
 
@@ -267,15 +273,15 @@ struct ResultStats {
   std::vector<int> count_diff_by_pot_slice;
 };
 
-void GetResultStats(const uint8_t* actual, const uint8_t* expected,
+void GetResultStats(const std::uint8_t* actual, const std::uint8_t* expected,
                     size_t count, ResultStats* stats) {
-  std::vector<uint8_t> results;
-  std::vector<int16_t> signed_diffs;
-  std::vector<uint8_t> unsigned_diffs;
-  int64_t signed_diffs_sum = 0;
+  std::vector<std::uint8_t> results;
+  std::vector<std::int16_t> signed_diffs;
+  std::vector<std::uint8_t> unsigned_diffs;
+  std::int64_t signed_diffs_sum = 0;
   for (size_t i = 0; i < count; i++) {
     results.push_back(actual[i]);
-    int16_t signed_diff = actual[i] - expected[i];
+    std::int16_t signed_diff = actual[i] - expected[i];
     signed_diffs.push_back(signed_diff);
     unsigned_diffs.push_back(std::abs(signed_diff));
     signed_diffs_sum += signed_diff;
@@ -419,25 +425,6 @@ void test_gemm_impl(typename GemmWrapper::Context* context, const LhsType& lhs,
   }
 
   ResultStatsBounds bounds;
-
-  if (BitDepthParams::LhsBitDepth::kBits < 8 ||
-      BitDepthParams::RhsBitDepth::kBits < 8) {
-    // We have very lax requirements on unsigned diff.
-    // We have tighter requirements on signed diff (bias), but only
-    // if the matrix is large enough for things to average out.
-    // For very small sizes, we... basically don't test anything.
-    // The problem is that this test uses unrealistic combinations of
-    // result_mult_int
-    // and result_shift, resulting in potentially wild requantization artifacts
-    // on small GEMMs.
-    int adjust_for_small_sizes = 1000 / (rows * cols);
-    bounds.max_unsigned_diff =
-        std::max(stats.med_val / 2, adjust_for_small_sizes);
-    bounds.med_unsigned_diff =
-        std::max(stats.med_val / 8, adjust_for_small_sizes);
-    bounds.med_signed_diff = std::max(2, adjust_for_small_sizes);
-    bounds.mean_signed_diff = std::max(2, adjust_for_small_sizes);
-  }
 
   // Check results
   const bool good = CheckResultStatsBounds(stats, bounds);
@@ -696,7 +683,7 @@ const char* GetBitDepthName(eight_bit_int_gemm::BitDepthSetting b) {
     case eight_bit_int_gemm::BitDepthSetting::A8B8:
       return "Lhs: 8 bit, Rhs: 8 bit";
     case eight_bit_int_gemm::BitDepthSetting::A5B7:
-      return "Lhs: 7 bit, Rhs: 5 bit";
+      return "(legacy, no longer requantizing) Lhs: 7 bit, Rhs: 5 bit";
     default:
       abort();
       return nullptr;
@@ -712,15 +699,16 @@ void TestWithSmallDataPerChannelQuantization() {
   const int k = 12;
 
   // 12 x 2, columnwise.
-  const uint8_t a_data[] = {0,  0,  0,  0,  0,  0,  0, 0, 0, 255, 255, 255,
-                            64, 64, 64, 64, 64, 64, 0, 0, 0, 255, 255, 255};
+  const std::uint8_t a_data[] = {0,  0,   0,   0,   0,  0,   0,   0,
+                                 0,  255, 255, 255, 64, 64,  64,  64,
+                                 64, 64,  0,   0,   0,  255, 255, 255};
   const int lda = k;
   int a_offset[] = {0, -64};
   MatrixMap<const std::uint8_t, MapOrder::RowMajor> lhs(a_data, m, k, lda);
   const OffsetColMap lhs_offset(a_offset, m);
 
   // 12 x 9, columnwise.
-  const uint8_t b_data[] = {
+  const std::uint8_t b_data[] = {
       0,   0,   0,   0,   0,   0,   0,   0,   0,   255, 255, 255, 0,   0,
       0,   0,   0,   0,   255, 255, 255, 0,   0,   0,   0,   0,   0,   127,
       127, 127, 0,   0,   0,   127, 127, 127, 0,   0,   0,   255, 255, 255,
@@ -735,16 +723,16 @@ void TestWithSmallDataPerChannelQuantization() {
   const OffsetRowDup rhs_offset(b_offset, rhs.cols());
 
   // 2 x 9, columnwise.
-  const uint8_t expected_c_data[] = {255, 255, 0,   0,   127, 159,
-                                     0,   64,  0,   64,  127, 159,
-                                     127, 127, 127, 127, 127, 127};
+  const std::uint8_t expected_c_data[] = {255, 255, 0,   0,   127, 159,
+                                          0,   64,  0,   64,  127, 159,
+                                          127, 127, 127, 127, 127, 127};
   const int ldc = m;
   int c_offset[] = {97155, 97346};
   int c_mult_int[] = {2741, 2741};
   const int c_shift = 21;
 
   const int c_count = m * n;
-  std::unique_ptr<uint8_t[]> output_data(new uint8_t[c_count]);
+  std::unique_ptr<std::uint8_t[]> output_data(new std::uint8_t[c_count]);
   MatrixMap<std::uint8_t, MapOrder::ColMajor> result(output_data.get(), m, n,
                                                      ldc);
   const OffsetColMap result_offset(c_offset, m);
@@ -754,7 +742,8 @@ void TestWithSmallDataPerChannelQuantization() {
   GemmContext gemm_context;
   auto output_pipeline = MakeStandardOutputPipeline<VectorShape::Col>(
       result_offset, result_mult_int, result_shift);
-  GemmWithOutputPipelinePC<uint8_t, uint8_t, DefaultL8R8BitDepthParams>(
+  GemmWithOutputPipelinePC<std::uint8_t, std::uint8_t,
+                           DefaultL8R8BitDepthParams>(
       &gemm_context, lhs, rhs, &result, lhs_offset, rhs_offset,
       output_pipeline);
 
@@ -780,7 +769,7 @@ void TestWithLargeDataPerChannelQuantization() {
   const int k = 27;
 
   // 27 x 22, column-wise.
-  const uint8_t a_data[] = {
+  const std::uint8_t a_data[] = {
       0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   255, 255, 255,
       0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
       0,   0,   0,   0,   0,   0,   127, 127, 127, 255, 255, 255, 127, 127, 127,
@@ -829,7 +818,7 @@ void TestWithLargeDataPerChannelQuantization() {
   const OffsetColMap lhs_offset(a_offset, m);
 
   // 27 x 25, column-wise.
-  const uint8_t b_data[] = {
+  const std::uint8_t b_data[] = {
       127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 127, 119, 119,
       119, 119, 119, 119, 127, 127, 127, 119, 119, 119, 119, 119, 119, 127,
       127, 127, 127, 127, 127, 127, 127, 127, 119, 119, 119, 119, 119, 119,
@@ -885,7 +874,7 @@ void TestWithLargeDataPerChannelQuantization() {
   const OffsetRowDup rhs_offset(b_offset, rhs.cols());
 
   // 22 x 25, column-wise.
-  const uint8_t expected_c_data[] = {
+  const std::uint8_t expected_c_data[] = {
       7,   37,  37,  67,  67,  39,  79,  7,   7,   7,   7,   7,   7,   7,   7,
       7,   7,   7,   7,   7,   7,   7,   7,   7,   37,  87,  67,  23,  91,  7,
       7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,   7,
@@ -940,7 +929,7 @@ void TestWithLargeDataPerChannelQuantization() {
   const int c_shift = 21;
 
   const int c_count = m * n;
-  std::unique_ptr<uint8_t[]> output_data(new uint8_t[c_count]);
+  std::unique_ptr<std::uint8_t[]> output_data(new std::uint8_t[c_count]);
   MatrixMap<std::uint8_t, MapOrder::ColMajor> result(output_data.get(), m, n,
                                                      ldc);
   const OffsetColMap result_offset(c_offset, m);
@@ -950,7 +939,8 @@ void TestWithLargeDataPerChannelQuantization() {
   GemmContext gemm_context;
   auto output_pipeline = MakeStandardOutputPipeline<VectorShape::Col>(
       result_offset, result_mult_int, result_shift);
-  GemmWithOutputPipelinePC<uint8_t, uint8_t, DefaultL8R8BitDepthParams>(
+  GemmWithOutputPipelinePC<std::uint8_t, std::uint8_t,
+                           DefaultL8R8BitDepthParams>(
       &gemm_context, lhs, rhs, &result, lhs_offset, rhs_offset,
       output_pipeline);
 
@@ -985,28 +975,28 @@ void TestMultithreadedPerChannelQuantization() {
   const int k = 160;
 
   // LHS, m x k.
-  const std::array<int32_t, 4> lhs_offsets_terse{{
+  const std::array<std::int32_t, 4> lhs_offsets_terse{{
       0, -51, -85, -109,
   }};
   assert(lhs_offsets_terse.size() * 16 == m);
-  const std::array<uint8_t, 4> lhs_first_el{{
+  const std::array<std::uint8_t, 4> lhs_first_el{{
       128, 153, 170, 182,
   }};
   assert(lhs_first_el.size() * 16 == m);
 
   // lhs_first_el at (i, 0) and 255 at (i, 1), other values are all -offset.
-  std::vector<uint8_t> a_data(m * k, 0);
+  std::vector<std::uint8_t> a_data(m * k, 0);
   for (int i = 0; i < m; ++i) {
     a_data[i * k] = lhs_first_el[i / 16];
     a_data[i * k + 1] = 255;
     for (int j = 2; j < k; ++j) {
-      a_data[i * k + j] = uint8_t(-lhs_offsets_terse[i / 16]);
+      a_data[i * k + j] = std::uint8_t(-lhs_offsets_terse[i / 16]);
     }
   }
 
   const int lda = k;
   // Given values at [i / 16].
-  std::vector<int32_t> a_offset(m, 0);
+  std::vector<std::int32_t> a_offset(m, 0);
   for (int i = 0; i < m; ++i) {
     a_offset[i] = lhs_offsets_terse[i / 16];
   }
@@ -1016,35 +1006,35 @@ void TestMultithreadedPerChannelQuantization() {
 
   // RHS, k x n.
   // All zeros, except 128 at (0, 0) and 255 at (1, 0).
-  std::vector<uint8_t> b_data(k * n, 0);
+  std::vector<std::uint8_t> b_data(k * n, 0);
   b_data[0] = 128;
   b_data[1] = 255;
 
   const int ldb = k;
-  int32_t b_offset = 0;
+  std::int32_t b_offset = 0;
   MatrixMap<const std::uint8_t, MapOrder::ColMajor> rhs(&b_data[0], k, n, ldb);
   const OffsetRowDup rhs_offset(b_offset, rhs.cols());
 
   // Result, m x n.
   // All zeros, except given values at (i / 16, 0).
-  const std::array<uint8_t, 4> expected_c_terse{{
+  const std::array<std::uint8_t, 4> expected_c_terse{{
       142, 159, 182, 213,
   }};
   assert(expected_c_terse.size() * 16 == m);
-  std::vector<uint8_t> expected_c_data(m * n, 0);
+  std::vector<std::uint8_t> expected_c_data(m * n, 0);
   for (int i = 0; i < m; ++i) {
     expected_c_data[i] = expected_c_terse[i / 16];
   }
 
   const int ldc = m;
   // All zeros.
-  std::vector<int32_t> c_offset(m, 0);
+  std::vector<std::int32_t> c_offset(m, 0);
   // Given values at [i / 16].
-  const std::array<int32_t, 4> c_mult_int_terse{{
+  const std::array<std::int32_t, 4> c_mult_int_terse{{
       3655, 5140, 7049, 9595,
   }};
   assert(c_mult_int_terse.size() * 16 == m);
-  std::vector<int32_t> c_mult_int(m);
+  std::vector<std::int32_t> c_mult_int(m);
   for (int i = 0; i < m; ++i) {
     c_mult_int[i] = c_mult_int_terse[i / 16];
   }
@@ -1052,7 +1042,7 @@ void TestMultithreadedPerChannelQuantization() {
   const int c_shift = 21;
 
   const int c_count = m * n;
-  std::unique_ptr<uint8_t[]> output_data(new uint8_t[c_count]);
+  std::unique_ptr<std::uint8_t[]> output_data(new std::uint8_t[c_count]);
   MatrixMap<std::uint8_t, MapOrder::ColMajor> result(output_data.get(), m, n,
                                                      ldc);
   const OffsetColMap result_offset(&c_offset[0], m);
@@ -1062,7 +1052,8 @@ void TestMultithreadedPerChannelQuantization() {
   GemmContext gemm_context;
   auto output_pipeline = MakeStandardOutputPipeline<VectorShape::Col>(
       result_offset, result_mult_int, result_shift);
-  GemmWithOutputPipelinePC<uint8_t, uint8_t, DefaultL8R8BitDepthParams>(
+  GemmWithOutputPipelinePC<std::uint8_t, std::uint8_t,
+                           DefaultL8R8BitDepthParams>(
       &gemm_context, lhs, rhs, &result, lhs_offset, rhs_offset,
       output_pipeline);
 
@@ -1086,11 +1077,11 @@ void TestWithSmallData() {
   // |  7 | 10 | 13 | 16 |
   // |  8 | 11 | 14 | 17 |
   // |  9 | 12 | 15 | 18 |
-  const uint8_t a_data[] = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18};
+  const std::uint8_t a_data[] = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18};
   // Matrix B (RHS) is:
   // |  1 |  3 |  5 |
   // |  2 |  4 |  6 |
-  const uint8_t b_data[] = {1, 2, 3, 4, 5, 6};
+  const std::uint8_t b_data[] = {1, 2, 3, 4, 5, 6};
   // Here are the results we expect, from hand calculations:
   // (1 * 7) + (3 * 8) + (5 * 9) = 76
   // (2 * 7) + (4 * 8) + (6 * 9) = 100
@@ -1103,10 +1094,10 @@ void TestWithSmallData() {
   // That means matrix C should be:
   // |  76 | 103 | 130 | 157 |
   // | 100 | 136 | 172 | 208 |
-  const uint8_t expected_data[] = {76, 100, 103, 136, 130, 172, 157, 208};
+  const std::uint8_t expected_data[] = {76, 100, 103, 136, 130, 172, 157, 208};
 
   const int c_count = m * n;
-  std::unique_ptr<uint8_t[]> output_data(new uint8_t[c_count]);
+  std::unique_ptr<std::uint8_t[]> output_data(new std::uint8_t[c_count]);
 
   const bool is_a_transposed = true;
   const bool is_b_transposed = true;
@@ -1141,7 +1132,8 @@ void TestWithSmallData() {
 // captured from an actual neural network run.
 void TestWithRealData(eight_bit_int_gemm::BitDepthSetting BitDepth,
                       int tolerance_median, int tolerance_max) {
-  std::unique_ptr<uint8_t[]> output_data(new uint8_t[test_data::c_count]);
+  std::unique_ptr<std::uint8_t[]> output_data(
+      new std::uint8_t[test_data::c_count]);
   gemmlowp::eight_bit_int_gemm::EightBitIntGemm(
       test_data::is_a_transposed, test_data::is_b_transposed,
       test_data::is_c_transposed, test_data::m, test_data::n, test_data::k,
@@ -1212,19 +1204,17 @@ void TestOutputStages(int rows, int depth, int cols, int result_offset,
       &context, lhs.const_map(), rhs.const_map(), &result_quantized_down_int32,
       lhs_offset, rhs_offset, quantize_down_pipeline);
 
-  std::uint64_t sum = 0;
+  std::int64_t sum = 0;
   for (int r = 0; r < rows; r++) {
     for (int c = 0; c < cols; c++) {
       std::int32_t raw = result_raw_int32(r, c);
-      const std::int32_t rounding =
-          (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-      std::int32_t expected =
-          ((raw + result_offset) * result_mult_int + rounding) >> result_shift;
+      std::int32_t expected = RoundingDivideByPOT(
+          (raw + result_offset) * result_mult_int, result_shift);
       Check(expected == result_quantized_down_int32(r, c));
       sum += expected;
     }
   }
-  std::uint64_t avg = sum / (rows * cols);
+  std::int64_t avg = sum / (rows * cols);
   // Test that the average quantized-down value falls reasonably in the
   // middle of the [0..255] range. Otherwise, the multiplier / shift need to be
   // adjusted.
@@ -1376,12 +1366,9 @@ void TestOutputStages(int rows, int depth, int cols, int result_offset,
       bias_clamp_quantize_cast_pipeline);
   for (int r = 0; r < rows; r++) {
     for (int c = 0; c < cols; c++) {
-      const std::int32_t rounding =
-          (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-      std::int32_t quantized =
-          ((result_biased_clamped(r, c) + result_offset) * result_mult_int +
-           rounding) >>
-          result_shift;
+      std::int32_t quantized = RoundingDivideByPOT(
+          (result_biased_clamped(r, c) + result_offset) * result_mult_int,
+          result_shift);
       std::uint8_t expected = std::min(std::max(quantized, 0), 255);
       Check(expected == result_biased_clamped_quantized_casted(r, c));
     }
@@ -1424,20 +1411,17 @@ void TestOutputStages(int rows, int depth, int cols, int result_offset,
   std::vector<std::int32_t> diffs_caused_by_fixedpoint;
   for (int r = 0; r < rows; r++) {
     for (int c = 0; c < cols; c++) {
-      std::int32_t diff = result_quantized_down_int32(r, c) -
-                          result_quantized_down_by_fixedpoint_int32(r, c);
-      Check(std::abs(diff) <= 1);
-      diffs_caused_by_fixedpoint.push_back(diff);
+      const std::int32_t actual =
+          result_quantized_down_by_fixedpoint_int32(r, c);
+      const std::int32_t raw = result_raw_int32(r, c);
+      const std::int32_t expected =
+          quantize_down_by_fixedpoint_stage.result_offset_after_shift +
+          RoundingDivideByPOT(SaturatingRoundingDoublingHighMul(
+                                  raw, result_fixedpoint_multiplier),
+                              result_fixedpoint_shift);
+      Check(actual == expected);
     }
   }
-  // For large enough matrices, check that most diffs are 0
-  std::sort(diffs_caused_by_fixedpoint.begin(),
-            diffs_caused_by_fixedpoint.end());
-  Check(
-      diffs_caused_by_fixedpoint[diffs_caused_by_fixedpoint.size() * 1 / 100] ==
-      0);
-  Check(diffs_caused_by_fixedpoint[diffs_caused_by_fixedpoint.size() * 99 /
-                                   100] == 0);
 
   // Test the variant of the familiar default pipeline consisting of
   // quantize-down and
@@ -1479,9 +1463,10 @@ void TestExhaustively() {
       std::uint8_t, DefaultL8R8BitDepthParams>>(&context);
 
   // Test the public GEMM interfaces
-  test_gemm<PublicGemmWrapper<uint8_t, DefaultL8R8BitDepthParams>>(&context);
+  test_gemm<PublicGemmWrapper<std::uint8_t, DefaultL8R8BitDepthParams>>(
+      &context);
 
-  test_gemm<EightBitIntGemmWrapper<uint8_t,
+  test_gemm<EightBitIntGemmWrapper<std::uint8_t,
                                    eight_bit_int_gemm::BitDepthSetting::A8B8>>(
       &context);
 
@@ -1495,14 +1480,16 @@ void TestExhaustively() {
       std::uint8_t, DefaultL8R8BitDepthParams>>(&context);
 
   // Test GEMV cases (public interfaces)
-  test_gemv<PublicGemmWrapper<uint8_t, DefaultL8R8BitDepthParams>>(&context);
+  test_gemv<PublicGemmWrapper<std::uint8_t, DefaultL8R8BitDepthParams>>(
+      &context);
 
-  test_gemv<EightBitIntGemmWrapper<uint8_t,
+  test_gemv<EightBitIntGemmWrapper<std::uint8_t,
                                    eight_bit_int_gemm::BitDepthSetting::A8B8>>(
       &context);
 
-  // Test other bit depths
-  // L7R5
+  // Test other bit depths:
+  // L7R5 (legacy old requantizing path, no longer actually requantizing,
+  // now just an alias for the default 8 bit depth).
   test_gemm<SingleThreadGemmWrapper<
       DefaultKernel<KernelFamily::Gemm, DefaultL7R5BitDepthParams>,
       std::uint8_t, DefaultL7R5BitDepthParams>>(&context);

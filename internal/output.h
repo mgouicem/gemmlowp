@@ -30,13 +30,15 @@ namespace gemmlowp {
 
 // A Fragment is a small fixed-size matrix typically stored in one or
 // a few architecture-specific SIMD vectors. Besides plain old scalar types
-// such as int32_t, Fragment types are what can be used as input/output data
-// types for output pipeline stages.
+// such as std::int32_t, Fragment types are what can be used as input/output
+// data types for output pipeline stages.
 //
 // More details:
 //
 // In the generic scalar code in this file, we have only implemented
-// evaluation of output stages for scalar inputs (e.g. plain int32_t values).
+// evaluation of output stages for scalar inputs (e.g. plain std::int32_t
+// values).
+//
 // Other files (e.g. output_neon.h) are to provide SIMD paths by implementing
 // evaluation of output stages for SIMD vector types. However, this raises
 // the question of how the different values ("lanes") in a SIMD vector
@@ -112,10 +114,8 @@ struct OutputStageEvalImpl<OutputStageQuantizeDownInt32ToUint8Scale,
     const std::int32_t result_shift = output_stage.result_shift;
     const std::int32_t result_mult_int = output_stage.result_mult_int;
     const std::int32_t result_offset = output_stage.result_offset;
-    const std::int32_t kRoundingTerm =
-        (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    return ((input + result_offset) * result_mult_int + kRoundingTerm) >>
-           result_shift;
+    return RoundingDivideByPOT((input + result_offset) * result_mult_int,
+                               result_shift);
   }
 
   const OutputStage& output_stage;
@@ -132,14 +132,12 @@ struct OutputStageEvalImpl<
 
   OutputStageEvalImpl(const OutputStage& s) : output_stage(s) {}
 
-  OutputType Eval(InputType input, int row, int col) const {
+  OutputType Eval(InputType input, int row, int) const {
     const std::int32_t result_shift = output_stage.result_shift;
     const std::int32_t result_mult_int = output_stage.result_mult_int(row);
     const std::int32_t result_offset = output_stage.result_offset(row);
-    const std::int32_t kRoundingTerm =
-        (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    return ((input + result_offset) * result_mult_int + kRoundingTerm) >>
-           result_shift;
+    return RoundingDivideByPOT((input + result_offset) * result_mult_int,
+                               result_shift);
   }
 
   const OutputStage& output_stage;
@@ -156,14 +154,12 @@ struct OutputStageEvalImpl<
 
   OutputStageEvalImpl(const OutputStage& s) : output_stage(s) {}
 
-  OutputType Eval(InputType input, int row, int col) const {
+  OutputType Eval(InputType input, int, int col) const {
     const std::int32_t result_shift = output_stage.result_shift;
     const std::int32_t result_mult_int = output_stage.result_mult_int(col);
     const std::int32_t result_offset = output_stage.result_offset(col);
-    const std::int32_t kRoundingTerm =
-        (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    return ((input + result_offset) * result_mult_int + kRoundingTerm) >>
-           result_shift;
+    return RoundingDivideByPOT((input + result_offset) * result_mult_int,
+                               result_shift);
   }
 
   const OutputStage& output_stage;
@@ -182,12 +178,8 @@ struct OutputStageEvalImpl<OutputStageQuantizeDownInt32ToUint8ScaleByFixedPoint,
   OutputType Eval(InputType input, int, int) const {
     const std::int32_t mulhigh_val = SaturatingRoundingDoublingHighMul(
         input.data, output_stage.result_fixedpoint_multiplier);
-    const std::int32_t result_shift = output_stage.result_shift;
-    const std::int32_t kRoundingTerm =
-        (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    const std::int32_t shifted_val =
-        (mulhigh_val + kRoundingTerm) >> result_shift;
-    return shifted_val + output_stage.result_offset_after_shift;
+    return RoundingDivideByPOT(mulhigh_val, output_stage.result_shift) +
+           output_stage.result_offset_after_shift;
   }
 
   const OutputStage& output_stage;
