@@ -86,7 +86,11 @@
 #define GEMMLOWP_NEON_64
 #endif
 
-// Detect SSE.
+// Detect SSE/AVX.
+#ifdef __AVX2__
+#define GEMMLOWP_AVX2
+#endif
+
 #ifdef __SSE4_1__
 #define GEMMLOWP_SSE4
 #endif
@@ -95,13 +99,21 @@
 #define GEMMLOWP_SSE3
 #endif
 
-// Convenience SSE4 tokens for 32-bit or 64-bit
+// Convenience AVX/SSE tokens for 32-bit or 64-bit
+#if defined(GEMMLOWP_AVX2) && defined(GEMMLOWP_X86_32)
+#define GEMMLOWP_AVX2_32
+#endif
+
 #if defined(GEMMLOWP_SSE4) && defined(GEMMLOWP_X86_32)
 #define GEMMLOWP_SSE4_32
 #endif
 
 #if defined(GEMMLOWP_SSE3) && defined(GEMMLOWP_X86_32)
 #define GEMMLOWP_SSE3_32
+#endif
+
+#if defined(GEMMLOWP_AVX2) && defined(GEMMLOWP_X86_64)
+#define GEMMLOWP_AVX2_64
 #endif
 
 #if defined(GEMMLOWP_SSE4) && defined(GEMMLOWP_X86_64)

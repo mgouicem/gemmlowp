@@ -183,6 +183,8 @@ void UnpackResult(ResultBlockType* dst, const MatrixBlockBounds& dst_block,
 
 #ifdef GEMMLOWP_NEON
 #include "unpack_neon.h"
+#elif defined (GEMMLOWP_AVX2)
+#include "unpack_avx2.h"
 #elif defined (GEMMLOWP_SSE4)
 #include "unpack_sse.h"
 #endif
