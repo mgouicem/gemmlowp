@@ -20,6 +20,8 @@
 #include <smmintrin.h>
 #include "output.h"
 
+#include <iostream>
+
 namespace gemmlowp {
 
   typedef struct _int32x16x1_t {
@@ -39,9 +41,9 @@ typedef Fragment<uint64_t, 8, 1, MapOrder::ColMajor> AVX2FragmentUint8x8x1;
 typedef Fragment<__m256i, 32, 1, MapOrder::ColMajor> AVX2FragmentUint8x32x1;
 
 template <typename OutputStageType>
-struct OutputStageEvalImpl<OutputStageType, AVX2FragmentInt32x16x1> {
-  typedef AVX2FragmentInt32x16x1 InputType;
-  typedef AVX2FragmentInt32x16x1 OutputType;
+struct OutputStageEvalImpl<OutputStageType, AVX2FragmentInt32x32x1> {
+  typedef AVX2FragmentInt32x32x1 InputType;
+  typedef AVX2FragmentInt32x32x1 OutputType;
   typedef OutputStageEvalImpl<OutputStageType, AVX2FragmentInt32x8x1>
       ImplInt32x8;
   OutputStageEvalImpl(const OutputStageType& s) : impl_int32x8(s) {}
@@ -49,9 +51,9 @@ struct OutputStageEvalImpl<OutputStageType, AVX2FragmentInt32x16x1> {
   OutputType Eval(InputType input, int row, int col) const {
     OutputType output;
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 4; i++) {
       output.data.val[i] =
-          impl_int32x8.Eval(input.data.val[i], row + 2 * i, col);
+          impl_int32x8.Eval(input.data.val[i], row + 4 * i, col);
     }
     return output;
   }
@@ -72,16 +74,12 @@ struct OutputStageEvalImpl<OutputStageQuantizeDownInt32ToUint8Scale,
 
   OutputType Eval(InputType input, int, int) const {
     const std::int32_t result_shift = output_stage.result_shift;
-    const __m256i result_mult_int = _mm256_set1_epi32(output_stage.result_mult_int);
-    const __m256i result_offset = _mm256_set1_epi32(output_stage.result_offset);
-    const std::int32_t kRoundingTerm =
-        (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    const __m256i a = Add(
-			  Mul(
-			      Add(input.data, result_offset),
-			      result_mult_int),
-			  Dup<__m256i>(kRoundingTerm));
-    return ShiftRight(a, result_shift);
+    const __m256i result_mult_int = Dup<__m256i>(output_stage.result_mult_int);
+    const __m256i result_offset = Dup<__m256i>(output_stage.result_offset);
+    const __m256i a = Mul(
+			  Add(input.data, result_offset),
+			  result_mult_int);
+    return RoundingDivideByPOT(a, result_shift);
   }
 
   const OutputStage& output_stage;
@@ -106,14 +104,10 @@ struct OutputStageEvalImpl<
       _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(output_stage.result_mult_int.data(row)));
     const __m256i result_offset =
       _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(output_stage.result_offset.data(row)));
-    const std::int32_t kRoundingTerm =
-        (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    const __m256i a = Add(
-			  Mul(
-			      Add(input.data, result_offset),
-			      result_mult_int),
-			  Dup<__m256i>(kRoundingTerm));
-    return ShiftRight(a, result_shift);
+    const __m256i a = Mul(
+			  Add(input.data, result_offset),
+			  result_mult_int);
+    return RoundingDivideByPOT(a, result_shift);
   }
 
   const OutputStage& output_stage;
@@ -138,13 +132,10 @@ struct OutputStageEvalImpl<
       _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(output_stage.result_mult_int.data(col)));
     const __m256i result_offset =
       _mm256_lddqu_si256(reinterpret_cast<const __m256i*>(output_stage.result_offset.data(row)));
-    const std::int32_t kRoundingTerm =
-        (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    const __m256i a = _mm256_add_epi32(
-			  _mm256_mullo_epi32(_mm256_add_epi32(input, result_offset),
-					  result_mult_int),
-			  _mm256_set1_epi32(kRoundingTerm));
-    return ShiftRight(a, result_shift);
+    const __m256i a = Mul(
+			  Add(input.data, result_offset),
+			  result_mult_int);
+    return RoundingDivideByPOT(a, result_shift);
   }
 
   const OutputStage& output_stage;
@@ -162,19 +153,15 @@ struct OutputStageEvalImpl<OutputStageQuantizeDownInt32ToUint8ScaleByFixedPoint,
   OutputStageEvalImpl(const OutputStage& s) : output_stage(s) {}
 
   OutputType Eval(InputType input, int, int) const {
-    const __m256i mulhigh_val =
-      SaturatingRoundingDoublingHighMul(input.data,
-					_mm256_set1_epi32(output_stage.result_fixedpoint_multiplier));
+    const __m256i mulhigh_val = SaturatingRoundingDoublingHighMul(
+        input.data,
+	Dup<__m256i>(output_stage.result_fixedpoint_multiplier));
     const std::int32_t result_shift = output_stage.result_shift;
-    const std::int32_t kRoundingTerm =
-      (result_shift < 1) ? 0 : (1 << (result_shift - 1));
-    
-    const __m256i shifted_val = ShiftRight(Add(mulhigh_val,
-					      _mm256_set1_epi32(kRoundingTerm)),
-					  result_shift);
-    return Add(shifted_val, _mm256_set1_epi32(output_stage.result_offset_after_shift));
+    const __m256i shifted_val = RoundingDivideByPOT(mulhigh_val,
+						    result_shift);
+    return Add(shifted_val, Dup<__m256i>(output_stage.result_offset_after_shift));
   }
-
+  
   const OutputStage& output_stage;
 };
 
@@ -190,8 +177,10 @@ struct OutputStageEvalImpl<OutputStageSaturatingCastToUint8,
   OutputStageEvalImpl(const OutputStage&) {}
 
   OutputType Eval(InputType input, int, int) const {
-    const __m256i zero = _mm256_set1_epi32(0);
-    __m256i res_16 = _mm256_packs_epi32(input, zero);
+    const __m256i zero = Dup<__m256i>(0);
+    __m256i res_16 = _mm256_packs_epi32(input,
+					_mm256_castsi128_si256(_mm256_extractf128_si256(input, 1)));
+    //    __m256i unpacked_res_16 = _mm256_unpacklo_epi64(res_16, res_16);
     __m256i res_8  = _mm256_packus_epi16(res_16, zero);
     return _mm_cvtsi128_si64(_mm256_castsi256_si128(res_8));
   }

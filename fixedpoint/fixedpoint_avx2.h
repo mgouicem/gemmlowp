@@ -24,6 +24,12 @@
 namespace gemmlowp {
 
 template <>
+struct FixedPointRawTypeTraits<__m256i> {
+  typedef std::int32_t ScalarRawType;
+  static const int kLanes = 8;
+};
+
+template <>
 inline __m256i BitAnd(__m256i a, __m256i b) {
   return _mm256_and_si256(a, b);
 }
@@ -162,7 +168,7 @@ inline __m256i SaturatingRoundingDoublingHighMul(__m256i a, __m256i b) {
   
 
   // saturation only happen if a == b == INT_MIN
-  min =  _mm256_set1_epi32(std::numeric_limits<int32_t>::min());
+  min =  _mm256_set1_epi32(std::numeric_limits<std::int32_t>::min());
   saturation_mask = BitAnd(MaskIfEqual(a,b), MaskIfEqual(a, min));
 
   //a = a0 | a1 | a2 | a3
@@ -191,48 +197,10 @@ inline __m256i SaturatingRoundingDoublingHighMul(__m256i a, __m256i b) {
   
   //saturate those which overflowed
   return SelectUsingMask(saturation_mask, min, result);
-}
- 
- 
-template <int Exponent>
-struct ImplSaturatingRoundingMultiplyByPOT<Exponent, __m256i, 1> {
-  static __m256i eval(__m256i x) {
-    __m256i min, max, result;
-    __m256i positive_mask, negative_mask;
-
-    min = _mm256_set1_epi32(std::numeric_limits<int32_t>::min());
-    max = _mm256_set1_epi32(std::numeric_limits<int32_t>::max());
-
-    int32_t threshold = ((1 << (31 - Exponent)) - 1);
-    positive_mask = MaskIfGreaterThan(x, _mm256_set1_epi32(threshold));
-    negative_mask = MaskIfLessThan(x, _mm256_set1_epi32(-threshold));
-    
-    result = ShiftLeft(x, Exponent);
-    result = SelectUsingMask(positive_mask, max, result);
-    result = SelectUsingMask(negative_mask, min, result);
-    return result;
-  }
- };
-
-template <int Exponent>
-struct ImplSaturatingRoundingMultiplyByPOT<Exponent, __m256i, -1> {
-  static __m256i eval(__m256i x) {
-    __m256i nudge, result;
-    nudge = _mm256_set1_epi64x(1 << (-Exponent - 1));
-    result = Add(x, nudge);
-    result = _mm256_srai_epi32(x, -Exponent);
-    return result;
-  }
-};
+} 
  
 template <>
-struct FixedPointRawTypeTraits<__m256i> {
-  typedef int32_t ScalarRawType;
-  static const int kLanes = 8;
-};
-
-template <>
-inline __m256i Dup<__m256i>(int32_t x) {
+inline __m256i Dup<__m256i>(std::int32_t x) {
   return _mm256_set1_epi32(x);
 }
 

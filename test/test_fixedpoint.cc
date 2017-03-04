@@ -41,6 +41,15 @@ using SimdVector = int32x4_t;
 constexpr std::size_t SimdVectorSize = 4;
 SimdVector LoadSimdVector(const std::int32_t* src) { return vld1q_s32(src); }
 void StoreSimdVector(std::int32_t* dst, SimdVector v) { vst1q_s32(dst, v); }
+#elif defined(GEMMLOWP_AVX2)
+using SimdVector = __m256i;
+constexpr std::size_t SimdVectorSize = 8;
+SimdVector LoadSimdVector(const std::int32_t* src) {
+  return _mm256_loadu_si256(reinterpret_cast<const __m256i*>(src));
+}
+void StoreSimdVector(std::int32_t* dst, SimdVector v) {
+  _mm256_storeu_si256(reinterpret_cast<__m256i*>(dst), v);
+}
 #elif defined(GEMMLOWP_SSE4)
 using SimdVector = __m128i;
 constexpr std::size_t SimdVectorSize = 4;
