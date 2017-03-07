@@ -772,10 +772,13 @@ FixedPoint<tRawType, 0> logistic(FixedPoint<tRawType, tIntegerBits> a) {
 
 #ifdef GEMMLOWP_NEON
 #include "./fixedpoint_neon.h"
-#elif defined(GEMMLOWP_AVX2)
+#else
+#if defined(GEMMLOWP_AVX2)
 #include "./fixedpoint_avx2.h"
-#elif defined(GEMMLOWP_SSE4)
+#endif
+#if defined(GEMMLOWP_SSE4)
 #include "./fixedpoint_sse.h"
+#endif
 #endif
 
 #endif  // GEMMLOWP_INTERNAL_FIXEDPOINT_H_
